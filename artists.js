@@ -1,48 +1,96 @@
 const fs = require('fs').promises;
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { console } = require('inspector');
 const nodeMailer = require('nodemailer');
 
+// Function to fetch and filter artists based on the webpage
 async function fetchFilteredArtists(artists) {
     try {
-        // Axios and cheerio to get html document and parse for wanted data
         const response = await axios.get('http://www.popvortex.com/music/charts/top-rap-songs.php');
-        const $ = cheerio.load(response.data);
-        const filterResults = [];  // Array of Tuples to store Artist name and song title
+        const $ = cheerio.load(response.data);  // Load HTML into Cheerio for parsing
+        const filterResults = []; // Array to store artist names and song titles
+        const seenResults = new Set();  // Set to track unique combinations
         
-        // Get artists to filter from command line and change case to small case
+        // Store desired artist names in lowercase
         const artistsLowerCase = artists.map(artist => artist.toLowerCase());
 
         $('p.title-artist').each((i, element) => {
-            // Temporaly save song title and artist name
-            const songTitle = $(element).find('.title').text();
+            const songTitle = $(element).find('.title').text();            
             const artistName = $(element).find('.artist').text();
-            console.log(`Rank: ${i}, Song: ${songTitle}, Artist: ${artistName}`);
-
-            // Check if desired artists are in top25
-            if (artistsLowerCase.includes(artistName.toLowerCase())) {
+    
+            // Check if full artist name or song title matches desired artists
+            const fullArtistKey = `${songTitle}-${artistName.toLowerCase()}`;
+            if ((artistsLowerCase.includes(artistName.toLowerCase()) || artistsLowerCase.includes(songTitle.toLowerCase())) && !seenResults.has(fullArtistKey)) {
                 filterResults.push([songTitle, artistName]);
+                seenResults.add(fullArtistKey);
             }
+
+            const exceptions = ["Tyler, the Creator"]; // List of names to skip splitting
+
+            // Separate artists if they are listed with ',' or '&', except exceptions
+            const individualArtists = artistName
+                .split(/,|&/)                      // Split by both `,` and `&`
+                .flatMap(name => exceptions.includes(name.trim()) ? [name.trim()] : name.split(',').map(part => part.trim()))  // Check exceptions
+                .map(name => name.toLowerCase());   // Convert to lowercase for uniformity
+
+            // Check each individual artist against the desired artists
+            individualArtists.forEach(individualArtist => {
+                const individualKey = `${songTitle}-${individualArtist}`;
+                if (artistsLowerCase.includes(individualArtist) && !seenResults.has(individualKey)) {
+                    filterResults.push([songTitle, artistName]);
+                    seenResults.add(individualKey);
+                }
+            });
             
-            // Quit loop after getting top 25
-            if (i == 25) return false;
-            
+            // Check for featured artists in song title
+            const featuredMatch = songTitle.match(/\(feat\. (.*?)\)/i);
+            if (featuredMatch) {
+                const featuredArtistsText = featuredMatch[1];
+                
+                // Split featured artists by ',' or '&' and trim each name
+                const featuredArtists = featuredArtistsText.split(/,|&/).map(name => name.trim().toLowerCase());
+
+                // Check if any featured artist matches desired artists
+                featuredArtists.forEach(featuredArtist => {
+                    const featuredKey = `${songTitle}-${featuredArtist}`;
+                    if (artistsLowerCase.includes(featuredArtist) && !seenResults.has(featuredKey)) {
+                        filterResults.push([songTitle, artistName]);
+                        seenResults.add(featuredKey);
+                    }
+                });
+            }
+
+            // Stop after the top 25
+            if (i == 24) return false;
         });
-        
-        return filterResults;
-    }catch (error) {
-        console.error('Error reading file:', error);
+
+        return filterResults;  // Return the list of songs and artists
+    } catch (error) {
+        console.error('Error fetching data:', error);
     }
 }
 
-function sendEmail(filteredResults, artists) {
+// function to get credentials from json file
+async function loadCredentials() {
+    try {
+        const data = await fs.readFile('credentials.json', 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error("Error reading credentials: ", error);
+    }
+}
+
+// Function to send mail
+async function sendEmail(filteredResults, artists) {
+    // Load credentials
+    const {from, to, senderEmail, senderPassword} = await loadCredentials();
+
     // create transporter
     const transporter = nodeMailer.createTransport({
         service: 'gmail',
         auth: {
-            user: 'yameanben@gmail.com',
-            pass: 'cosc-484'
+            user: senderEmail,
+            pass: senderPassword
         }
     });
 
@@ -55,9 +103,9 @@ function sendEmail(filteredResults, artists) {
     // Condition to send mail only if there's valid results
     if (filteredResults.length > 0) {
         const mailOptions = {
-            from: 'yameanben@gmail.com',
-            to: "yameanben@gmail.com",
-            subject: `Your artists are: ${artists.join(", ")}`,
+            from: from,
+            to: to,
+            subject: `Your artists are: ${process.argv.slice(2).join(", ")}`,
             html: emailContent
         };
 
@@ -69,19 +117,22 @@ function sendEmail(filteredResults, artists) {
                 console.log('Email sent: ', info.response)
             }
         });
+    } else {
+        console.log("Email not sent because artists are not specified or not in Top25");
+        process.exit(1);
     }
 }
 
+// Main function to call fetchFilteredArtists and print results
 async function main() {
-    console.log("Full arguments", process.argv);
-    // Get artists from command line 
+    // Get artists from command line (if any are provided)
     const artists = process.argv.slice(2);
-    console.log(artists);
 
+    // Fetch the top 25 artists and songs, ignoring the filter
     const results = await fetchFilteredArtists(artists);
-    // sendEmail(results, artists);
 
-    console.log(results);
+    // send email
+    sendEmail(results, artists);
 }
 
 main();

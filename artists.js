@@ -37,7 +37,7 @@ async function fetchFilteredArtists(artists) {
             individualArtists.forEach(individualArtist => {
                 const individualKey = `${songTitle}-${individualArtist}`;
                 if (artistsLowerCase.includes(individualArtist) && !seenResults.has(individualKey)) {
-                    filterResults.push([songTitle, artistName]);
+                    filterResults.push([songTitle, individualArtist]);
                     seenResults.add(individualKey);
                 }
             });
@@ -54,14 +54,14 @@ async function fetchFilteredArtists(artists) {
                 featuredArtists.forEach(featuredArtist => {
                     const featuredKey = `${songTitle}-${featuredArtist}`;
                     if (artistsLowerCase.includes(featuredArtist) && !seenResults.has(featuredKey)) {
-                        filterResults.push([songTitle, artistName]);
+                        filterResults.push([songTitle, featuredArtist]);
                         seenResults.add(featuredKey);
                     }
                 });
             }
 
             // Stop after the top 25
-            if (i == 24) return false;
+            if (i === 24) return false;
         });
 
         return filterResults;  // Return the list of songs and artists
@@ -105,7 +105,7 @@ async function sendEmail(filteredResults, artists) {
         const mailOptions = {
             from: from,
             to: to,
-            subject: `Your artists are: ${process.argv.slice(2).join(", ")}`,
+            subject: `Your artists are: ${artists}`,
             html: emailContent
         };
 
@@ -130,7 +130,8 @@ async function main() {
 
     // Fetch the top 25 artists and songs, ignoring the filter
     const results = await fetchFilteredArtists(artists);
-
+    // console.log(results); print results
+    
     // send email
     sendEmail(results, artists);
 }

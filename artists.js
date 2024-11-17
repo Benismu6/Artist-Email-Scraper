@@ -84,6 +84,13 @@ async function loadCredentials() {
 async function sendEmail(filteredResults, artists) {
     // Load credentials
     const {from, to, senderEmail, senderPassword} = await loadCredentials();
+    const formattedArtists = artists.join(", ").replace(/,([^,]*)$/, " and$1");
+
+    // Check for missing credentials and throw error if necessary 
+    if (!from || !to || !senderEmail || !senderPassword) {
+        console.error("Missing required credentials. Check credentials.json");
+        process.exit(1);
+    }
 
     // create transporter
     const transporter = nodeMailer.createTransport({
@@ -97,7 +104,7 @@ async function sendEmail(filteredResults, artists) {
     // Format email content
     let emailContent = '';
     filteredResults.forEach(([songTitle, artistName]) => {
-        emailContent += `<b>${artistName}</b>, <i>${songTitle}</i><br>`;
+        emailContent += `<b>${artistName}:</b>, <i>${songTitle}</i><br>`;
     });
 
     // Condition to send mail only if there's valid results
@@ -105,7 +112,7 @@ async function sendEmail(filteredResults, artists) {
         const mailOptions = {
             from: from,
             to: to,
-            subject: `Your artists are: ${artists}`,
+            subject: `Your artists are: ${formattedArtists}`,
             html: emailContent
         };
 
@@ -130,7 +137,7 @@ async function main() {
 
     // Fetch the top 25 artists and songs, ignoring the filter
     const results = await fetchFilteredArtists(artists);
-    // console.log(results); print results
+    // console.log(results);  // print results
     
     // send email
     sendEmail(results, artists);
